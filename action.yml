@@ -1,0 +1,101 @@
+name: 'Pipery Ansible CD'
+description: 'CD pipeline for Ansible: install requirements → run playbook → verify status. Deploy to VMs or bare metal.'
+inputs:
+  project_path:
+    description: 'Path to the project source tree.'
+    required: false
+    default: '.'
+  config_file:
+    description: 'Path to the pipery config file.'
+    required: false
+    default: '.github/pipery/config.yaml'
+  playbook:
+    description: 'Path to the Ansible playbook file.'
+    required: false
+    default: 'playbook.yml'
+  inventory:
+    description: 'Path to the Ansible inventory file.'
+    required: false
+    default: 'inventory'
+  requirements:
+    description: 'Path to requirements.txt for pip.'
+    required: false
+    default: ''
+  ansible_requirements:
+    description: 'Path to requirements.yml for ansible-galaxy.'
+    required: false
+    default: ''
+  extra_vars:
+    description: 'Extra variables as JSON or key=val pairs.'
+    required: false
+    default: ''
+  ssh_key:
+    description: 'SSH private key for connecting to hosts.'
+    required: false
+    default: ''
+  ssh_known_hosts:
+    description: 'Known hosts content for SSH.'
+    required: false
+    default: ''
+  become:
+    description: 'Use sudo/become for privilege escalation.'
+    required: false
+    default: 'false'
+  tags:
+    description: 'Comma-separated playbook tags to run.'
+    required: false
+    default: ''
+  skip_requirements:
+    description: 'Skip pip/galaxy requirements install.'
+    required: false
+    default: 'false'
+  skip_deploy:
+    description: 'Skip playbook run step.'
+    required: false
+    default: 'false'
+  skip_status_check:
+    description: 'Skip status check step.'
+    required: false
+    default: 'false'
+  log_file:
+    description: 'Path to write the JSONL log file.'
+    required: false
+    default: 'pipery.jsonl'
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Set up psh
+    uses: pipery-dev/pipery@v1
+
+  - name: Load config
+    shell: bash
+    run: src/read-config.sh
+    env:
+      INPUT_PROJECT_PATH: ${{ inputs.project_path }}
+      INPUT_CONFIG_FILE: ${{ inputs.config_file }}
+
+  - name: Setup
+    shell: bash
+    run: src/step-setup.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Deploy
+    shell: bash
+    run: src/step-deploy.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Status
+    shell: bash
+    run: src/step-status.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+branding:
+  icon: tool
+  color: red

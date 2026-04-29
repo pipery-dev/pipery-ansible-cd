@@ -1,0 +1,112 @@
+owner = "pipery-dev"
+action_name = "pipery-ansible-cd"
+title = "Pipery Ansible CD"
+description = "CD pipeline for Ansible: install requirements → run playbook → verify status. Deploy to VMs or bare metal."
+marketplace_category = "continuous-integration"
+author = "pipery-dev"
+action_type = "composite"
+default_branch = "main"
+version = "1.0.0"
+repository_visibility = "public"
+icon = "assets/icon.png"
+simple_icon = "ansible"
+test_command = ""
+test_project_path = "test-project"
+test_project_input = "project_path"
+test_log_path = "pipery.jsonl"
+test_log_success_values = ["success", "succeeded", "passed", "ok"]
+cleanup_paths = ["pipery.jsonl"]
+
+[[inputs]]
+name = "project_path"
+description = "Path to the project source tree."
+required = false
+default = "."
+
+[[inputs]]
+name = "config_file"
+description = "Path to the pipery config file."
+required = false
+default = ".github/pipery/config.yaml"
+
+[[inputs]]
+name = "playbook"
+description = "Path to the Ansible playbook file."
+required = false
+default = "playbook.yml"
+
+[[inputs]]
+name = "inventory"
+description = "Path to the Ansible inventory file."
+required = false
+default = "inventory"
+
+[[inputs]]
+name = "requirements"
+description = "Path to requirements.txt for pip."
+required = false
+default = ""
+
+[[inputs]]
+name = "ansible_requirements"
+description = "Path to requirements.yml for ansible-galaxy."
+required = false
+default = ""
+
+[[inputs]]
+name = "extra_vars"
+description = "Extra variables as JSON or key=val pairs."
+required = false
+default = ""
+
+[[inputs]]
+name = "ssh_key"
+description = "SSH private key for connecting to hosts."
+required = false
+default = ""
+
+[[inputs]]
+name = "ssh_known_hosts"
+description = "Known hosts content for SSH."
+required = false
+default = ""
+
+[[inputs]]
+name = "become"
+description = "Use sudo/become for privilege escalation."
+required = false
+default = "false"
+
+[[inputs]]
+name = "tags"
+description = "Comma-separated playbook tags to run."
+required = false
+default = ""
+
+[[inputs]]
+name = "skip_requirements"
+description = "Skip pip/galaxy requirements install."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_deploy"
+description = "Skip playbook run step."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_status_check"
+description = "Skip status check step."
+required = false
+default = "false"
+
+[[inputs]]
+name = "log_file"
+description = "Path to write the JSONL log file."
+required = false
+default = "pipery.jsonl"
+
+[[test_log_required_fields]]
+name = "event"
+value = "deploy"
