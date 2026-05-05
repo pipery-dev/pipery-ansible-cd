@@ -3,7 +3,7 @@
 
 variables:
   PROJECT_PATH: "."
-  CONFIG_FILE: ".github/pipery/config.yaml"
+  CONFIG_FILE: ".pipery/config.yaml"
   PLAYBOOK: "playbook.yml"  # Required
   INVENTORY: "inventory"  # Required
   REQUIREMENTS: ""

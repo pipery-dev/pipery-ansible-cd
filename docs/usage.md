@@ -25,7 +25,7 @@ jobs:
       - uses: pipery-dev/pipery-ansible-cd@v3
         with:
           project_path: .
-          config_file: .github/pipery/config.yaml
+          config_file: .pipery/config.yaml
           playbook: playbook.yml
           inventory: inventory
           requirements: 
