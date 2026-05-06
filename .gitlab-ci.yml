@@ -4,21 +4,24 @@
 variables:
   PROJECT_PATH: "."
   CONFIG_FILE: ".pipery/config.yaml"
-  PLAYBOOK: "playbook.yml"  # Required
-  INVENTORY: "inventory"  # Required
-  REQUIREMENTS: ""
-  ANSIBLE_REQUIREMENTS: ""
-  EXTRA_VARS: ""
-  BECOME: "false"
-  TAGS: ""
-  SKIP_REQUIREMENTS: "false"
-  SKIP_DEPLOY: "false"
-  SKIP_STATUS_CHECK: "false"
-  LOG_FILE: "pipery.jsonl"
+  INPUT_PROJECT_PATH: "."
+  INPUT_CONFIG_FILE: ".pipery/config.yaml"
+  INPUT_PLAYBOOK: "playbook.yml"  # Required
+  INPUT_INVENTORY: "inventory"  # Required
+  INPUT_REQUIREMENTS: ""
+  INPUT_ANSIBLE_REQUIREMENTS: ""
+  INPUT_EXTRA_VARS: ""
+  INPUT_BECOME: "false"
+  INPUT_TAGS: ""
+  INPUT_SKIP_REQUIREMENTS: "false"
+  INPUT_SKIP_DEPLOY: "false"
+  INPUT_SKIP_STATUS_CHECK: "false"
+  INPUT_LOG_FILE: "pipery.jsonl"
 
 stages:
   - checkout
   - setup
+  - download
   - requirements
   - deploy
   - status_check
@@ -33,30 +36,36 @@ checkout:
 setup:
   stage: setup
   image: python:3.11-alpine
+  before_script:
+    - apk add --no-cache bash openssh-client
   script:
     - echo "Setting up Ansible environment..."
     - pip install ansible
     - ansible --version
     - echo "Setup complete"
 
+download:
+  stage: download
+  image: alpine:latest
+  script:
+    - echo "Validating Ansible configuration..."
+    - |
+      if [ -z "${INPUT_PLAYBOOK}" ] || [ -z "${INPUT_INVENTORY}" ]; then
+        echo "ERROR: INPUT_PLAYBOOK and INPUT_INVENTORY must be set"
+        exit 1
+      fi
+    - echo "Configuration validated: ${INPUT_PLAYBOOK} with ${INPUT_INVENTORY}"
+
 requirements:
   stage: requirements
   image: python:3.11-alpine
   before_script:
+    - apk add --no-cache bash
     - pip install ansible
   script:
-    - echo "Installing requirements..."
-    - |
-      if [ -n "$REQUIREMENTS" ]; then
-        pip install -r $REQUIREMENTS
-      fi
-    - |
-      if [ -n "$ANSIBLE_REQUIREMENTS" ]; then
-        ansible-galaxy install -r $ANSIBLE_REQUIREMENTS
-      fi
-    - echo "Requirements installation complete"
+    - ./src/step-setup.sh
   rules:
-    - if: '$SKIP_REQUIREMENTS == "true"'
+    - if: '$INPUT_SKIP_REQUIREMENTS == "true"'
       when: never
     - when: on_success
   allow_failure: false
@@ -68,55 +77,40 @@ deploy:
     - setup
     - requirements
   before_script:
+    - apk add --no-cache bash openssh-client
     - pip install ansible
     - |
-      if [ -n "$SSH_KEY" ]; then
+      if [ -n "${INPUT_SSH_KEY:-}" ]; then
         mkdir -p ~/.ssh
-        echo "$SSH_KEY" > ~/.ssh/id_rsa
+        echo "${INPUT_SSH_KEY}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
       fi
     - |
-      if [ -n "$SSH_KNOWN_HOSTS" ]; then
+      if [ -n "${INPUT_SSH_KNOWN_HOSTS:-}" ]; then
         mkdir -p ~/.ssh
-        echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+        echo "${INPUT_SSH_KNOWN_HOSTS}" >> ~/.ssh/known_hosts
       fi
   script:
-    - cd $PROJECT_PATH
-    - |
-      if [ -z "$PLAYBOOK" ] || [ -z "$INVENTORY" ]; then
-        echo "ERROR: PLAYBOOK and INVENTORY must be set"
-        exit 1
-      fi
-    - echo "Running Ansible playbook: $PLAYBOOK"
-    - echo "Using inventory: $INVENTORY"
-    - |
-      ANSIBLE_FLAGS="-i $INVENTORY"
-      [ "$BECOME" = "true" ] && ANSIBLE_FLAGS="$ANSIBLE_FLAGS -b"
-      [ -n "$TAGS" ] && ANSIBLE_FLAGS="$ANSIBLE_FLAGS -t $TAGS"
-      [ -n "$EXTRA_VARS" ] && ANSIBLE_FLAGS="$ANSIBLE_FLAGS -e '$EXTRA_VARS'"
-    - |
-      echo "Ansible command:"
-      echo "ansible-playbook $PLAYBOOK $ANSIBLE_FLAGS"
-      # In real scenario: ansible-playbook $PLAYBOOK $ANSIBLE_FLAGS
-      echo "Playbook would execute"
-    - echo "Deploy stage complete"
+    - ./src/step-deploy.sh
   rules:
-    - if: '$SKIP_DEPLOY == "true"'
+    - if: '$INPUT_SKIP_DEPLOY == "true"'
       when: never
     - when: on_success
   artifacts:
     paths:
-      - $LOG_FILE
+      - $INPUT_LOG_FILE
     expire_in: 30 days
 
 status_check:
   stage: status_check
   image: python:3.11-alpine
+  before_script:
+    - apk add --no-cache bash openssh-client
+    - pip install ansible
   script:
-    - echo "Checking playbook execution status..."
-    - echo "Verifying target systems are in expected state"
+    - ./src/step-status.sh
   rules:
-    - if: '$SKIP_STATUS_CHECK == "true"'
+    - if: '$INPUT_SKIP_STATUS_CHECK == "true"'
       when: never
     - when: on_success
   allow_failure: true
@@ -125,9 +119,9 @@ publish_logs:
   stage: logs
   image: alpine:latest
   script:
-    - echo "Ansible deployment complete" | tee -a $LOG_FILE
+    - echo "Ansible deployment complete" | tee -a $INPUT_LOG_FILE
   artifacts:
     paths:
-      - $LOG_FILE
+      - $INPUT_LOG_FILE
     expire_in: 90 days
   when: always
