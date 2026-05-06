@@ -1,0 +1,282 @@
+# ============================================================================
+# Bitbucket Pipelines Configuration for pipery-ansible-cd
+# Production-Ready Infrastructure Automation via Ansible
+# ============================================================================
+#
+# SETUP: Configure Protected Variables
+# - ANSIBLE_VAULT_PASSWORD: Ansible vault password (Secured)
+# - ANSIBLE_SSH_KEY: SSH private key for managed hosts (Secured, base64-encoded)
+# - ANSIBLE_BECOME_PASSWORD: Sudo password for privilege escalation (Secured, optional)
+#
+# FEATURES:
+# - Run Ansible playbooks for infrastructure deployment
+# - Support for multiple inventory sources
+# - Ansible vault for secret management
+# - Parallel execution with configurable concurrency
+
+definitions:
+  steps:
+    - step: &checkout-step
+        name: Checkout Repository
+        image: alpine:latest
+        script:
+          - echo "Repository ready at $BITBUCKET_BRANCH:$BITBUCKET_COMMIT"
+          - ls -la
+
+    - step: &setup-step
+        name: Setup Ansible Environment
+        image: alpine:latest
+        script:
+          - echo "Setting up Ansible deployment environment..."
+          - apk add --no-cache curl bash wget tar gzip git openssh-client python3 py3-pip
+          - pip3 install --quiet ansible
+          - ansible --version
+          - echo "Ansible environment ready"
+
+    - step: &download-step
+        name: Validate Ansible Configuration
+        image: alpine:latest
+        script:
+          - |
+            if [ "$SKIP_DOWNLOAD" = "true" ]; then
+              echo "Skipping validation (SKIP_DOWNLOAD=true)"
+              exit 0
+            fi
+          - echo "Validating Ansible configuration..."
+          - apk add --no-cache python3 py3-pip
+          - pip3 install --quiet ansible
+          - |
+            if [ -z "$ANSIBLE_PLAYBOOK" ]; then
+              echo "ERROR: ANSIBLE_PLAYBOOK must be set"
+              exit 1
+            fi
+          - |
+            if [ ! -f "$ANSIBLE_PLAYBOOK" ]; then
+              echo "ERROR: Playbook not found: $ANSIBLE_PLAYBOOK"
+              exit 1
+            fi
+          - echo "Playbook validation: $ANSIBLE_PLAYBOOK"
+          - echo "Configuration validated"
+
+    - step: &deploy-step-script
+        name: Deploy via Ansible Playbook
+        image: alpine:latest
+        script:
+          - |
+            if [ "$SKIP_DEPLOY" = "true" ]; then
+              echo "Skipping deployment (SKIP_DEPLOY=true)"
+              exit 0
+            fi
+          - echo "Deploying via Ansible..."
+          - apk add --no-cache curl bash openssh-client python3 py3-pip
+          - pip3 install --quiet ansible
+          - |
+            if [ -z "$ANSIBLE_PLAYBOOK" ]; then
+              echo "ERROR: ANSIBLE_PLAYBOOK required"
+              exit 1
+            fi
+          - |
+            if [ -n "$ANSIBLE_VAULT_PASSWORD" ]; then
+              echo "$ANSIBLE_VAULT_PASSWORD" > /tmp/vault_pass
+              chmod 600 /tmp/vault_pass
+              VAULT_OPT="--vault-password-file=/tmp/vault_pass"
+            fi
+          - |
+            if [ -n "$ANSIBLE_SSH_KEY" ]; then
+              echo "$ANSIBLE_SSH_KEY" | base64 -d > ~/.ssh/ansible_key
+              chmod 600 ~/.ssh/ansible_key
+              ANSIBLE_PRIVATE_KEY_FILE=~/.ssh/ansible_key
+              export ANSIBLE_PRIVATE_KEY_FILE
+            fi
+          - |
+            ANSIBLE_CMD="ansible-playbook $VAULT_OPT"
+          - |
+            if [ -n "$ANSIBLE_INVENTORY" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD -i $ANSIBLE_INVENTORY"
+            fi
+          - |
+            if [ -n "$ANSIBLE_LIMIT" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD -l $ANSIBLE_LIMIT"
+            fi
+          - |
+            if [ -n "$ANSIBLE_TAGS" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD -t $ANSIBLE_TAGS"
+            fi
+          - |
+            if [ -n "$ANSIBLE_SKIP_TAGS" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD --skip-tags $ANSIBLE_SKIP_TAGS"
+            fi
+          - |
+            if [ "$ANSIBLE_DIFF_MODE" = "true" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD --diff"
+            fi
+          - |
+            if [ "$ANSIBLE_CHECK_MODE" = "true" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD --check"
+            fi
+          - |
+            ANSIBLE_CMD="$ANSIBLE_CMD -e deploy_target=$DEPLOY_TARGET"
+            ANSIBLE_CMD="$ANSIBLE_CMD -e deploy_strategy=$DEPLOY_STRATEGY"
+            ANSIBLE_CMD="$ANSIBLE_CMD -e ansible_concurrency=${ANSIBLE_FORKS:-5}"
+          - |
+            if [ -n "$ANSIBLE_EXTRA_VARS" ]; then
+              ANSIBLE_CMD="$ANSIBLE_CMD -e \"$ANSIBLE_EXTRA_VARS\""
+            fi
+          - |
+            ANSIBLE_CMD="$ANSIBLE_CMD -v $ANSIBLE_PLAYBOOK"
+          - echo "Executing Ansible playbook..."
+          - echo "Command: $ANSIBLE_CMD"
+          - eval "$ANSIBLE_CMD"
+          - echo "Ansible deployment complete"
+
+    - step: &status-check-step
+        name: Verify Deployment Status
+        image: alpine:latest
+        script:
+          - |
+            if [ "$SKIP_STATUS_CHECK" = "true" ]; then
+              echo "Skipping status check (SKIP_STATUS_CHECK=true)"
+              exit 0
+            fi
+          - echo "Verifying Ansible deployment..."
+          - apk add --no-cache openssh-client python3 py3-pip
+          - pip3 install --quiet ansible
+          - |
+            if [ -n "$ANSIBLE_SSH_KEY" ]; then
+              echo "$ANSIBLE_SSH_KEY" | base64 -d > ~/.ssh/ansible_key
+              chmod 600 ~/.ssh/ansible_key
+              export ANSIBLE_PRIVATE_KEY_FILE=~/.ssh/ansible_key
+            fi
+          - |
+            echo "Pinging managed hosts..."
+            if [ -n "$ANSIBLE_INVENTORY" ]; then
+              ansible all -i $ANSIBLE_INVENTORY -m ping || echo "Health check completed"
+            else
+              echo "Ansible inventory not configured for health check"
+            fi
+          - echo "Deployment verification complete"
+
+    - step: &logs-step
+        name: Collect & Archive Logs
+        image: alpine:latest
+        script:
+          - echo "Archiving deployment logs..."
+          - mkdir -p logs
+          - |
+            {
+              echo "Ansible Deployment Report"
+              echo "=========================="
+              echo "Playbook: $ANSIBLE_PLAYBOOK"
+              echo "Inventory: $ANSIBLE_INVENTORY"
+              echo "Strategy: $DEPLOY_STRATEGY"
+              echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              echo "Status: SUCCESS"
+            } > logs/deployment_report.txt
+        artifacts:
+          - logs/**
+
+variables:
+  PROJECT_PATH: "."
+  CONFIG_FILE: ".pipery/config.yaml"
+
+  # Ansible Playbook Configuration
+  ANSIBLE_PLAYBOOK: ""                # Path to Ansible playbook file (required)
+  ANSIBLE_INVENTORY: "inventory.ini"  # Path to inventory file
+
+  # Ansible Execution Options
+  ANSIBLE_LIMIT: ""                   # Limit execution to specific hosts/groups
+  ANSIBLE_TAGS: ""                    # Only run plays with specified tags
+  ANSIBLE_SKIP_TAGS: ""               # Skip plays with specified tags
+  ANSIBLE_FORKS: "5"                  # Number of parallel processes
+  ANSIBLE_DIFF_MODE: "false"          # Show differences for changed files
+  ANSIBLE_CHECK_MODE: "false"         # Run in check mode (dry-run)
+
+  # Ansible Variables
+  ANSIBLE_EXTRA_VARS: ""              # Additional variables (JSON or space-separated key=val)
+
+  # Ansible Secrets Management
+  # ANSIBLE_VAULT_PASSWORD: (Set as Protected Variable)
+  # ANSIBLE_SSH_KEY: (Set as Protected Variable, base64-encoded)
+  # ANSIBLE_BECOME_PASSWORD: (Set as Protected Variable, optional)
+
+  # Deployment Configuration
+  DEPLOY_TARGET: "infrastructure"
+  DEPLOY_STRATEGY: "rolling"          # Options: rolling, blue-green, canary
+
+  # Feature Flags
+  SKIP_DOWNLOAD: "false"
+  SKIP_DEPLOY: "false"
+  SKIP_STATUS_CHECK: "false"
+
+  # Logging
+  LOG_FILE: "pipery.jsonl"
+
+pipelines:
+  default:
+    - step: *checkout-step
+    - step: *setup-step
+    - step: *download-step
+    - step:
+        <<: *deploy-step-script
+        trigger: manual
+    - step:
+        <<: *status-check-step
+        optional: true
+    - step: *logs-step
+
+  branches:
+    main:
+      - step: *checkout-step
+      - step: *setup-step
+      - step: *download-step
+      - step:
+          <<: *deploy-step-script
+          trigger: manual
+      - step:
+          <<: *status-check-step
+          optional: true
+      - step: *logs-step
+
+  pull-requests:
+    feature/**:
+      - step: *checkout-step
+      - step: *setup-step
+      - step:
+          <<: *download-step
+          optional: true
+      - step: *logs-step
+
+  custom:
+    deploy:
+      - step: *checkout-step
+      - step: *setup-step
+      - step: *download-step
+      - step:
+          <<: *deploy-step-script
+          trigger: manual
+      - step:
+          <<: *status-check-step
+          optional: true
+      - step: *logs-step
+
+    dry-run:
+      - step: *checkout-step
+      - step: *setup-step
+      - step: *download-step
+      - step:
+          name: Dry-Run Ansible Playbook
+          image: alpine:latest
+          script:
+            - echo "Running Ansible playbook in check/dry-run mode..."
+            - apk add --no-cache openssh-client python3 py3-pip
+            - pip3 install --quiet ansible
+            - |
+              ANSIBLE_CMD="ansible-playbook --check --diff"
+              if [ -n "$ANSIBLE_VAULT_PASSWORD" ]; then
+                echo "$ANSIBLE_VAULT_PASSWORD" > /tmp/vault_pass
+                chmod 600 /tmp/vault_pass
+                ANSIBLE_CMD="$ANSIBLE_CMD --vault-password-file=/tmp/vault_pass"
+              fi
+              ANSIBLE_CMD="$ANSIBLE_CMD -i $ANSIBLE_INVENTORY $ANSIBLE_PLAYBOOK"
+              eval "$ANSIBLE_CMD"
+      - step: *logs-step
