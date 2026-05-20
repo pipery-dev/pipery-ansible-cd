@@ -64,18 +64,27 @@ inputs:
 runs:
   using: composite
   steps:
-    - id: main
+    - name: Run Pipery Ansible CD
       shell: bash
+      env:
+        INPUT_PROJECT_PATH: ${{ inputs.project_path }}
+        INPUT_CONFIG_FILE: ${{ inputs.config_file }}
+        INPUT_PLAYBOOK: ${{ inputs.playbook }}
+        INPUT_INVENTORY: ${{ inputs.inventory }}
+        INPUT_REQUIREMENTS: ${{ inputs.requirements }}
+        INPUT_ANSIBLE_REQUIREMENTS: ${{ inputs.ansible_requirements }}
+        INPUT_EXTRA_VARS: ${{ inputs.extra_vars }}
+        INPUT_SSH_KEY: ${{ inputs.ssh_key }}
+        INPUT_SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
+        INPUT_BECOME: ${{ inputs.become }}
+        INPUT_TAGS: ${{ inputs.tags }}
+        INPUT_SKIP_SETUP: ${{ inputs.skip_requirements }}
+        INPUT_SKIP_DEPLOY: ${{ inputs.skip_deploy }}
+        INPUT_SKIP_STATUS_CHECK: ${{ inputs.skip_status_check }}
+        INPUT_LOG_FILE: ${{ inputs.log_file }}
       run: |
         set -euo pipefail
-        project_path="${INPUT_PROJECT_PATH:-${PIPERY_TEST_PROJECT_PATH:-.}}"
-        log_path="${PIPERY_LOG_PATH:-pipery.jsonl}"
-        if [ ! -d "$project_path" ]; then
-          echo "Expected project path to exist: $project_path" >&2
-          exit 1
-        fi
-        printf '{"event":"build","status":"success","project_path":"%s"}\n' "$project_path" > "$log_path"
-        echo "Implement your action logic here for $project_path."
+        bash "${GITHUB_ACTION_PATH}/src/main.sh"
 branding:
   icon: package
   color: blue

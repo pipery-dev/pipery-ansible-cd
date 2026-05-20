@@ -1,0 +1,8 @@
+---
+- name: Pipery Ansible CD test playbook
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Confirm playbook is loadable
+      ansible.builtin.debug:
+        msg: pipery
